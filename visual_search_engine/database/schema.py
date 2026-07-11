@@ -40,6 +40,10 @@ def initialize_database():
     )
     """)
     
+    # 4. Speed Optimization Indices
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_events_timestamp ON user_events (timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_events_user_id ON user_events (user_id)")
+    
     conn.commit()
     conn.close()
 

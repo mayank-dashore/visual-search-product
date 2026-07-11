@@ -244,8 +244,19 @@ class ProductCard(QFrame):
         self.image_lbl.setAlignment(Qt.AlignCenter)
         self.image_lbl.setStyleSheet("border-radius: 6px; background-color: #0f172a;")
         
-        if os.path.exists(product['image_path']):
-            pixmap = QPixmap(product['image_path'])
+        img_path = product['image_path']
+        actual_img_path = img_path
+        if img_path and not os.path.isabs(img_path):
+            app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            clean_path = img_path
+            if img_path.startswith("visual_search_engine/"):
+                clean_path = img_path[len("visual_search_engine/"):]
+            elif img_path.startswith("visual_search_engine\\"):
+                clean_path = img_path[len("visual_search_engine\\"):]
+            actual_img_path = os.path.join(app_root, clean_path)
+            
+        if actual_img_path and os.path.exists(actual_img_path):
+            pixmap = QPixmap(actual_img_path)
             self.image_lbl.setPixmap(pixmap.scaled(164, 130, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self.image_lbl.setText("💍 No Image")
@@ -283,29 +294,47 @@ class ProductCard(QFrame):
         
         if score is not None:
             self.score = score
-            self.btn_explain = QPushButton("🔍 Explain Match", self)
-            self.btn_explain.clicked.connect(self.show_details)
-            btn_layout.addWidget(self.btn_explain)
+            self.btn_view = QPushButton("🔍 Explain", self)
+            self.btn_view.setToolTip("Explain AI Recommendation Match")
+            self.btn_view.setStyleSheet("font-size: 11px; padding: 8px 6px;")
         else:
             self.btn_view = QPushButton("👁️", self)
             self.btn_view.setToolTip("View Product Details")
             self.btn_view.setObjectName("secondaryBtn")
-            self.btn_view.clicked.connect(self.on_view_clicked)
             
-            self.btn_wish = QPushButton("❤️", self)
-            self.btn_wish.setToolTip("Add to Wishlist")
-            self.btn_wish.setObjectName("secondaryBtn")
-            self.btn_wish.clicked.connect(lambda: self.wishlisted.emit(self.product_id))
+        self.btn_view.clicked.connect(self.on_view_clicked)
+        
+        self.btn_wish = QPushButton("❤️", self)
+        self.btn_wish.setToolTip("Add to Wishlist")
+        self.btn_wish.setObjectName("secondaryBtn")
+        self.btn_wish.clicked.connect(lambda: self.wishlisted.emit(self.product_id))
+        
+        self.btn_buy = QPushButton("🛒 Buy", self)
+        self.btn_buy.setToolTip("Purchase Product")
+        
+        # Check stock level to disable purchase if out of stock
+        if product.get('stock', 0) <= 0:
+            self.btn_buy.setEnabled(False)
+            self.btn_buy.setText("❌ Sold Out")
+            self.btn_buy.setStyleSheet("background-color: #374151; color: #9ca3af; padding: 8px; font-size: 11px;")
+        else:
+            self.btn_buy.clicked.connect(self.on_buy_clicked)
             
-            self.btn_buy = QPushButton("🛒 Buy", self)
-            self.btn_buy.setToolTip("Purchase Product")
-            self.btn_buy.clicked.connect(lambda: self.purchased.emit(self.product_id))
-            
-            btn_layout.addWidget(self.btn_view)
-            btn_layout.addWidget(self.btn_wish)
-            btn_layout.addWidget(self.btn_buy)
+        btn_layout.addWidget(self.btn_view)
+        btn_layout.addWidget(self.btn_wish)
+        btn_layout.addWidget(self.btn_buy)
         
         layout.addLayout(btn_layout)
+
+    def on_buy_clicked(self):
+        from PySide6.QtWidgets import QMessageBox
+        confirm = QMessageBox.question(
+            self, "Confirm Purchase",
+            f"Are you sure you want to purchase '{self.product['name']}'?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            self.purchased.emit(self.product_id)
 
     def on_view_clicked(self):
         self.viewed.emit(self.product_id)
@@ -316,6 +345,7 @@ class ProductCard(QFrame):
             self.show_details()
 
     def show_details(self):
+        self.viewed.emit(self.product_id)
         # Determine current user ID if available
         user_id = None
         p = self.parent()
@@ -337,11 +367,29 @@ class ProductCard(QFrame):
 class ProductDetailsDialog(QDialog):
     def __init__(self, product, score=None, user_id=None, parent=None):
         super().__init__(parent)
-        self.product = product
+        
+        # Support passing either a product ID string or a product dictionary/row
+        if isinstance(product, str):
+            import sqlite3
+            from database.connection import get_connection
+            conn = get_connection()
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM products WHERE product_id = ?", (product,))
+            db_row = cursor.fetchone()
+            conn.close()
+            if db_row:
+                self.product = dict(db_row)
+            else:
+                self.product = {'product_id': product, 'name': 'Unknown Product', 'category': 'Unknown', 'price': 0.0, 'image_path': '', 'stock': 0}
+        else:
+            self.product = product
+            
         self.score = score
         self.user_id = user_id
+        product = self.product
         
-        self.setWindowTitle(f"Product Details - {product['name']}")
+        self.setWindowTitle(f"Product Details - {self.product['name']}")
         self.resize(600, 500)
         self.setStyleSheet("background-color: #0f172a;")
         
@@ -358,8 +406,19 @@ class ProductDetailsDialog(QDialog):
         img_lbl.setFixedSize(240, 200)
         img_lbl.setAlignment(Qt.AlignCenter)
         img_lbl.setStyleSheet("border-radius: 8px; background-color: #1e293b; border: 1px solid #334155;")
-        if os.path.exists(product['image_path']):
-            pix = QPixmap(product['image_path'])
+        img_path = product['image_path']
+        actual_img_path = img_path
+        if img_path and not os.path.isabs(img_path):
+            app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            clean_path = img_path
+            if img_path.startswith("visual_search_engine/"):
+                clean_path = img_path[len("visual_search_engine/"):]
+            elif img_path.startswith("visual_search_engine\\"):
+                clean_path = img_path[len("visual_search_engine\\"):]
+            actual_img_path = os.path.join(app_root, clean_path)
+            
+        if actual_img_path and os.path.exists(actual_img_path):
+            pix = QPixmap(actual_img_path)
             img_lbl.setPixmap(pix.scaled(240, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             img_lbl.setText("💍 No Image")

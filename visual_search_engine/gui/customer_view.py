@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QComboBox, QScrollArea, QGridLayout, QLineEdit,
-                             QPushButton, QSplitter, QFrame)
+                             QPushButton, QSplitter, QFrame, QTabWidget)
 from PySide6.QtCore import Qt, Slot
 from gui.components import DragDropUploadWidget, ProductCard
 from database.connection import get_connection
@@ -17,6 +17,13 @@ class CustomerViewTab(QWidget):
         self.current_user_id = 'user_1'
         self.search_image_path = None
         self.visual_similarities = []
+        self.recs_page = 0
+        self.all_page = 0
+        self.items_per_page = 6
+        self.current_mode = "recs" # "recs", "search"
+        self.all_recs_list = []
+        self.all_products_list = []
+        self.search_results_list = []
         
         # Load models
         self.embedder = EmbeddingGenerator()
@@ -108,12 +115,81 @@ class CustomerViewTab(QWidget):
         self.scroll_layout.addLayout(self.similar_grid)
         self.similar_lbl.hide() # Hidden initially until image upload
         
-        # Personalized Recommendations Section
-        self.recs_lbl = QLabel("Recommended For You", self)
-        self.recs_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #f8fafc;")
+        # Main subtab widget to separate recommendations and all products catalog
+        self.sandbox_tabs = QTabWidget(self)
+        self.sandbox_tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid #334155; border-radius: 8px; background-color: #0f172a; padding: 10px; }
+            QTabBar::tab { background-color: #1e293b; color: #94a3b8; padding: 8px 16px; border-radius: 4px; font-weight: bold; margin-right: 4px; }
+            QTabBar::tab:selected { background-color: #0f172a; color: #38bdf8; border-bottom: 2px solid #0ea5e9; }
+        """)
+        
+        # 1. Recommended Products Subtab
+        recs_tab = QWidget()
+        recs_tab_layout = QVBoxLayout(recs_tab)
+        recs_tab_layout.setContentsMargins(0, 0, 0, 0)
+        recs_tab_layout.setSpacing(10)
+        
         self.recs_grid = QGridLayout()
-        self.scroll_layout.addWidget(self.recs_lbl)
-        self.scroll_layout.addLayout(self.recs_grid)
+        
+        self.recs_page_controls = QWidget()
+        recs_page_layout = QHBoxLayout(self.recs_page_controls)
+        recs_page_layout.setAlignment(Qt.AlignCenter)
+        recs_page_layout.setSpacing(15)
+        
+        self.recs_prev_btn = QPushButton("◀ Prev", self.recs_page_controls)
+        self.recs_prev_btn.setObjectName("secondaryBtn")
+        self.recs_prev_btn.clicked.connect(self.go_prev_recs_page)
+        
+        self.recs_page_lbl = QLabel("Page 1 of 1", self.recs_page_controls)
+        self.recs_page_lbl.setStyleSheet("font-weight: bold; color: #cbd5e1; font-size: 12px;")
+        
+        self.recs_next_btn = QPushButton("Next ▶", self.recs_page_controls)
+        self.recs_next_btn.setObjectName("secondaryBtn")
+        self.recs_next_btn.clicked.connect(self.go_next_recs_page)
+        
+        recs_page_layout.addWidget(self.recs_prev_btn)
+        recs_page_layout.addWidget(self.recs_page_lbl)
+        recs_page_layout.addWidget(self.recs_next_btn)
+        
+        recs_tab_layout.addLayout(self.recs_grid)
+        recs_tab_layout.addWidget(self.recs_page_controls)
+        
+        self.sandbox_tabs.addTab(recs_tab, "✨ Recommended Products")
+        
+        # 2. All Products Subtab
+        all_tab = QWidget()
+        all_tab_layout = QVBoxLayout(all_tab)
+        all_tab_layout.setContentsMargins(0, 0, 0, 0)
+        all_tab_layout.setSpacing(10)
+        
+        self.all_grid = QGridLayout()
+        
+        self.all_page_controls = QWidget()
+        all_page_layout = QHBoxLayout(self.all_page_controls)
+        all_page_layout.setAlignment(Qt.AlignCenter)
+        all_page_layout.setSpacing(15)
+        
+        self.all_prev_btn = QPushButton("◀ Prev", self.all_page_controls)
+        self.all_prev_btn.setObjectName("secondaryBtn")
+        self.all_prev_btn.clicked.connect(self.go_prev_all_page)
+        
+        self.all_page_lbl = QLabel("Page 1 of 1", self.all_page_controls)
+        self.all_page_lbl.setStyleSheet("font-weight: bold; color: #cbd5e1; font-size: 12px;")
+        
+        self.all_next_btn = QPushButton("Next ▶", self.all_page_controls)
+        self.all_next_btn.setObjectName("secondaryBtn")
+        self.all_next_btn.clicked.connect(self.go_next_all_page)
+        
+        all_page_layout.addWidget(self.all_prev_btn)
+        all_page_layout.addWidget(self.all_page_lbl)
+        all_page_layout.addWidget(self.all_next_btn)
+        
+        all_tab_layout.addLayout(self.all_grid)
+        all_tab_layout.addWidget(self.all_page_controls)
+        
+        self.sandbox_tabs.addTab(all_tab, "📦 All Products")
+        
+        self.scroll_layout.addWidget(self.sandbox_tabs)
         
         # Recently Viewed Section
         self.recent_lbl = QLabel("Recently Viewed", self)
@@ -185,6 +261,9 @@ class CustomerViewTab(QWidget):
     def on_text_search_changed(self, text):
         if not text:
             # Revert to normal recommendation updates
+            self.current_mode = "recs"
+            self.recs_page = 0
+            self.all_page = 0
             self.update_recommendations()
             return
             
@@ -192,40 +271,77 @@ class CustomerViewTab(QWidget):
         conn = get_connection()
         cursor = conn.cursor()
         query = f"%{text}%"
-        cursor.execute("SELECT * FROM products WHERE name LIKE ? OR category LIKE ? LIMIT 6", (query, query))
+        cursor.execute("SELECT * FROM products WHERE name LIKE ? OR category LIKE ?", (query, query))
         products = [dict(row) for row in cursor.fetchall()]
         conn.close()
         
-        # Temporarily repurpose the recommendation grid to show text search results
-        self.recs_lbl.setText(f"Search Results for '{text}'")
-        self.clear_layout(self.recs_grid)
+        self.current_mode = "search"
+        self.recs_page = 0
+        self.all_page = 0
+        self.search_results_list = products
         
-        for idx, prod in enumerate(products):
-            card = ProductCard(prod, parent=self)
-            card.viewed.connect(self.on_product_viewed)
-            card.wishlisted.connect(self.on_product_wishlisted)
-            card.purchased.connect(self.on_product_purchased)
-            
-            row = idx // 3
-            col = idx % 3
-            self.recs_grid.addWidget(card, row, col)
+        self.render_recs_grid()
+        self.render_all_grid()
 
     def update_recommendations(self):
         # Fit model on current events
         self.recommender.fit()
         
-        # Get hybrid recommendations
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM products ORDER BY rowid DESC")
+        all_prods = [dict(row) for row in cursor.fetchall()]
+        self.all_products_list = all_prods
+        
         recs = self.recommender.get_hybrid_recommendations(
             user_id=self.current_user_id,
             visual_similarities=self.visual_similarities,
-            k=6
+            k=max(6, len(all_prods))
         )
+        conn.close()
         
-        self.recs_lbl.setText("Recommended For You")
+        self.current_mode = "recs"
+        self.all_recs_list = recs
+        
+        self.render_recs_grid()
+        self.render_all_grid()
+
+    def render_recs_grid(self):
         self.clear_layout(self.recs_grid)
+        items = self.all_recs_list if self.current_mode == "recs" else self.search_results_list
         
-        for idx, (prod_id, prod, score) in enumerate(recs):
-            card = ProductCard(prod, score=score, parent=self)
+        total_items = len(items)
+        total_pages = max(1, (total_items + self.items_per_page - 1) // self.items_per_page)
+        
+        if self.recs_page >= total_pages:
+            self.recs_page = total_pages - 1
+        if self.recs_page < 0:
+            self.recs_page = 0
+            
+        start_idx = self.recs_page * self.items_per_page
+        end_idx = start_idx + self.items_per_page
+        page_items = items[start_idx:end_idx]
+        
+        for idx, item in enumerate(page_items):
+            if self.current_mode == "recs":
+                prod_dict = item[1]
+                score = item[2]
+                
+                # Check if this user has any interaction history
+                user_has_history = False
+                conn = get_connection()
+                c = conn.cursor()
+                c.execute("SELECT COUNT(*) FROM user_events WHERE user_id = ?", (self.current_user_id,))
+                user_has_history = c.fetchone()[0] > 0
+                conn.close()
+                
+                if not user_has_history and not self.visual_similarities:
+                    score = None
+                    
+                card = ProductCard(prod_dict, score=score, parent=self)
+            else:
+                card = ProductCard(item, parent=self)
+                
             card.viewed.connect(self.on_product_viewed)
             card.wishlisted.connect(self.on_product_wishlisted)
             card.purchased.connect(self.on_product_purchased)
@@ -233,6 +349,64 @@ class CustomerViewTab(QWidget):
             row = idx // 3
             col = idx % 3
             self.recs_grid.addWidget(card, row, col)
+            
+        self.recs_page_lbl.setText(f"Page {self.recs_page + 1} of {total_pages}")
+        self.recs_prev_btn.setEnabled(self.recs_page > 0)
+        self.recs_next_btn.setEnabled(self.recs_page < total_pages - 1)
+
+    def render_all_grid(self):
+        self.clear_layout(self.all_grid)
+        items = self.all_products_list if self.current_mode == "recs" else self.search_results_list
+        
+        total_items = len(items)
+        total_pages = max(1, (total_items + self.items_per_page - 1) // self.items_per_page)
+        
+        if self.all_page >= total_pages:
+            self.all_page = total_pages - 1
+        if self.all_page < 0:
+            self.all_page = 0
+            
+        start_idx = self.all_page * self.items_per_page
+        end_idx = start_idx + self.items_per_page
+        page_items = items[start_idx:end_idx]
+        
+        for idx, item in enumerate(page_items):
+            card = ProductCard(item, parent=self)
+            card.viewed.connect(self.on_product_viewed)
+            card.wishlisted.connect(self.on_product_wishlisted)
+            card.purchased.connect(self.on_product_purchased)
+            
+            row = idx // 3
+            col = idx % 3
+            self.all_grid.addWidget(card, row, col)
+            
+        self.all_page_lbl.setText(f"Page {self.all_page + 1} of {total_pages}")
+        self.all_prev_btn.setEnabled(self.all_page > 0)
+        self.all_next_btn.setEnabled(self.all_page < total_pages - 1)
+        
+    def go_prev_recs_page(self):
+        if self.recs_page > 0:
+            self.recs_page -= 1
+            self.render_recs_grid()
+            
+    def go_next_recs_page(self):
+        items = self.all_recs_list if self.current_mode == "recs" else self.search_results_list
+        total_pages = max(1, (len(items) + self.items_per_page - 1) // self.items_per_page)
+        if self.recs_page < total_pages - 1:
+            self.recs_page += 1
+            self.render_recs_grid()
+
+    def go_prev_all_page(self):
+        if self.all_page > 0:
+            self.all_page -= 1
+            self.render_all_grid()
+            
+    def go_next_all_page(self):
+        items = self.all_products_list if self.current_mode == "recs" else self.search_results_list
+        total_pages = max(1, (len(items) + self.items_per_page - 1) // self.items_per_page)
+        if self.all_page < total_pages - 1:
+            self.all_page += 1
+            self.render_all_grid()
 
     def update_recently_viewed(self):
         self.clear_layout(self.recent_grid)

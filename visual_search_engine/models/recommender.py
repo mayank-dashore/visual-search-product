@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import os
 from database.connection import get_connection
 
 class MatrixFactorizationCF(nn.Module):
@@ -169,6 +170,7 @@ class HybridRecommender:
             return []
             
         scores = []
+        user_has_history = False
         user_idx = self.user_to_idx.get(user_id, None)
         
         # Determine category affinity for current user context (Content/Bandit element)
@@ -176,6 +178,9 @@ class HybridRecommender:
         if user_idx is not None:
             conn = get_connection()
             c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM user_events WHERE user_id = ?", (user_id,))
+            user_has_history = c.fetchone()[0] > 0
+            
             c.execute(
                 "SELECT category, COUNT(*) FROM user_events JOIN products ON user_events.product_id = products.product_id WHERE user_id = ? GROUP BY category",
                 (user_id,)
@@ -197,13 +202,29 @@ class HybridRecommender:
         
         visual_sim_dict = {pid: score for pid, score in (visual_similarities or [])}
         
+        app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
         for p in all_products:
+            # Check disk presence (only populate results from folders present in the dataset)
+            img_path = p['image_path']
+            actual_img_path = img_path
+            if img_path and not os.path.isabs(img_path):
+                clean_path = img_path
+                if img_path.startswith("visual_search_engine/"):
+                    clean_path = img_path[len("visual_search_engine/"):]
+                elif img_path.startswith("visual_search_engine\\"):
+                    clean_path = img_path[len("visual_search_engine\\"):]
+                actual_img_path = os.path.join(app_root, clean_path)
+                
+            if not actual_img_path or not os.path.exists(actual_img_path):
+                continue
+                
             pid = p['product_id']
             p_cat = p['category']
             
             # 1. CF/NCF Score (40%)
             cf_val = 0.0
-            if user_idx is not None and self.cf_model is not None and pid in self.item_to_idx:
+            if user_has_history and user_idx is not None and self.cf_model is not None and pid in self.item_to_idx:
                 p_idx = self.item_to_idx[pid]
                 with torch.no_grad():
                     pred_cf = float(self.cf_model(torch.tensor(user_idx), torch.tensor(p_idx)))
@@ -226,8 +247,10 @@ class HybridRecommender:
             # 4. Popularity Score (10%)
             pop_val = self.popularity_scores.get(pid, 0.0)
             
-            # Calculate final hybrid score
-            hybrid_score = (0.4 * cf_val) + (0.3 * vis_val) + (0.2 * content_val) + (0.1 * pop_val)
+            # Calculate final hybrid score with Multi-Armed Bandit random exploration factor
+            import random
+            exploration_noise = random.uniform(0.0, 0.05)
+            hybrid_score = (0.4 * cf_val) + (0.3 * vis_val) + (0.2 * content_val) + (0.1 * pop_val) + exploration_noise
             
             scores.append((pid, p, hybrid_score))
             

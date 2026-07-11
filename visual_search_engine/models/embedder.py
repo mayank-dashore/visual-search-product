@@ -11,9 +11,25 @@ warnings.filterwarnings('ignore')
 class EmbeddingGenerator:
     def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.resnet = None
+        self.vit = None
+        self.clip_model = None
+        self.clip_processor = None
+        self.resnet_transform = None
+        self.vit_transform = None
+        self.has_resnet = False
+        self.has_vit = False
+        self.has_clip = False
+        self.models_loaded = False
+
+    def ensure_models_loaded(self):
+        if self.models_loaded:
+            return
         
-        # ResNet-50 Setup
+        # Lazy load ResNet-50
         try:
+            import torchvision.models as models
+            import torchvision.transforms as transforms
             self.resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
             self.resnet.fc = nn.Identity() # Remove final classification layer
             self.resnet.eval()
@@ -28,8 +44,10 @@ class EmbeddingGenerator:
             print(f"ResNet-50 not loaded: {e}. Fallback features will be used.")
             self.has_resnet = False
 
-        # ViT Setup (using torchvision to minimize external packages if offline)
+        # Lazy load ViT
         try:
+            import torchvision.models as models
+            import torchvision.transforms as transforms
             self.vit = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT)
             self.vit.heads = nn.Identity() # Remove head
             self.vit.eval()
@@ -44,8 +62,7 @@ class EmbeddingGenerator:
             print(f"ViT not loaded: {e}. Fallback features will be used.")
             self.has_vit = False
 
-        # CLIP Setup (using transformers if available, otherwise fallback)
-        self.has_clip = False
+        # Lazy load CLIP
         try:
             from transformers import CLIPProcessor, CLIPModel
             self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -55,6 +72,9 @@ class EmbeddingGenerator:
             self.has_clip = True
         except Exception as e:
             print(f"CLIP not loaded: {e}. Fallback features will be used.")
+            self.has_clip = False
+            
+        self.models_loaded = True
 
     def classify_shape_fallback(self, pil_image):
         """
@@ -92,10 +112,7 @@ class EmbeddingGenerator:
             return 'Necklaces'
 
     def get_embedding(self, pil_image):
-        """
-        Extracts embeddings from CLIP, ViT, and ResNet-50.
-        Concatenates them into a single 3328-dim vector.
-        """
+        self.ensure_models_loaded()
         features = []
 
         # 1. ResNet-50 (2048-dim)

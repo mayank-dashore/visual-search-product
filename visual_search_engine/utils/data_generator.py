@@ -104,10 +104,39 @@ def bootstrap_data(rebuild_index=True):
                             category = cat
                             break
                     
-                    prod_id = f"prod_{uuid.uuid4().hex[:10]}"
-                    name = f"Tanishq {category[:-1] if category.endswith('s') else category} {file.split('.')[0][:15]}"
-                    price = round(random.uniform(500, 10000), 2)
-                    stock = random.randint(2, 20)
+                    import hashlib
+                    clean_rel = img_path.replace("\\", "/").lower()
+                    if "datasets/" in clean_rel:
+                        clean_rel = clean_rel[clean_rel.index("datasets/"):]
+                    h = hashlib.md5(clean_rel.encode('utf-8')).hexdigest()
+                    prod_id = f"prod_{h[:12]}"
+                    import re
+                    name_part = os.path.splitext(file)[0]
+                    parts = re.split(r'[-_]', name_part)
+                    
+                    price = None
+                    stock = None
+                    
+                    numeric_parts = []
+                    for p in parts:
+                        p_clean = p.replace('$', '').strip()
+                        if re.match(r'^\d+(\.\d+)?$', p_clean):
+                            numeric_parts.append(float(p_clean))
+                            
+                    if len(numeric_parts) >= 2:
+                        stock = int(numeric_parts[-1])
+                        price = round(numeric_parts[-2], 2)
+                    elif len(numeric_parts) == 1:
+                        price = round(numeric_parts[0], 2)
+                        stock = 10
+                        
+                    if price is None or price <= 0:
+                        price = round(random.uniform(500, 10000), 2)
+                    if stock is None or stock < 0:
+                        stock = random.randint(2, 20)
+                        
+                    clean_name = name_part.split('_')[0].split('-')[0].replace('_', ' ').replace('-', ' ').title()
+                    name = f"Tanishq {category[:-1] if category.endswith('s') else category} {clean_name}"
                     
                     product_records.append((prod_id, name, category, price, img_path, stock))
                     tanishq_found = True

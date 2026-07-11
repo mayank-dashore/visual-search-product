@@ -90,7 +90,7 @@ class MainWindow(QMainWindow):
         if role == "customer":
             self.visual_search_tab = PureVisualSearchTab(self)
             self.customer_tab = CustomerViewTab(self)
-            self.profile_tab = UserProfileTab(self)
+            self.profile_tab = UserProfileTab(self, admin_mode=False)
             
             # Set user context
             self.customer_tab.set_user(user_id)
@@ -98,10 +98,11 @@ class MainWindow(QMainWindow):
             
             self.tabs.addTab(self.visual_search_tab, "🔍 Visual Search Landing Page")
             self.tabs.addTab(self.customer_tab, "🛍️ Recommender Sandbox")
-            self.tabs.addTab(self.profile_tab, "👤 My Profile & Logs")
+            self.tabs.addTab(self.profile_tab, "👤 History")
         else:
             self.admin_tab = AdminViewTab(self)
             self.tabs.addTab(self.admin_tab, "⚙️ Admin Dashboard & Controls")
+            self.admin_tab.refresh_view()
             
         layout.addWidget(self.tabs)
 
@@ -115,7 +116,7 @@ class MainWindow(QMainWindow):
         if "Recommender Sandbox" in tab_text:
             self.customer_tab.update_recommendations()
             self.customer_tab.update_recently_viewed()
-        elif "My Profile & Logs" in tab_text:
+        elif "History" in tab_text:
             self.profile_tab.refresh_profile()
         elif "Admin Dashboard" in tab_text:
             self.admin_tab.refresh_view()

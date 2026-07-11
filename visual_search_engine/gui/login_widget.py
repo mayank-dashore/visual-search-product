@@ -93,6 +93,7 @@ class LoginWidget(QWidget):
         self.pass_input = QLineEdit(self.pass_layout_widget)
         self.pass_input.setEchoMode(QLineEdit.Password)
         self.pass_input.setPlaceholderText("Enter admin password (hint: admin)")
+        self.pass_input.returnPressed.connect(self.handle_login)
         pass_layout.addWidget(self.pass_input)
         card_layout.addWidget(self.pass_layout_widget)
         
@@ -134,13 +135,22 @@ class LoginWidget(QWidget):
             self.pass_layout_widget.hide()
 
     def handle_login(self):
+        self.login_btn.setText("SIGNING IN...")
+        self.login_btn.setEnabled(False)
+        from PySide6.QtCore import QTimer
+        # 400ms delay to let the user see the click state change
+        QTimer.singleShot(400, self.validate_login)
+
+    def validate_login(self):
         role = self.role_combo.currentText()
         if role == "System Administrator":
-            password = self.pass_input.text()
+            password = self.pass_input.text().strip().lower()
             if password == "admin":
                 self.login_successful.emit("admin_1", "admin")
             else:
                 QMessageBox.warning(self, "Access Denied", "Incorrect Administrator password!")
+                self.login_btn.setText("SIGN IN")
+                self.login_btn.setEnabled(True)
         else:
             idx = self.user_combo.currentIndex()
             if idx >= 0:
@@ -148,3 +158,5 @@ class LoginWidget(QWidget):
                 self.login_successful.emit(user_id, "customer")
             else:
                 QMessageBox.warning(self, "Error", "No user profile selected!")
+                self.login_btn.setText("SIGN IN")
+                self.login_btn.setEnabled(True)
