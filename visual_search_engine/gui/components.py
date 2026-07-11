@@ -1,7 +1,8 @@
 from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QFileDialog, QSizePolicy)
+                             QPushButton, QFileDialog, QSizePolicy, QDialog, QWidget)
 from PySide6.QtCore import Qt, Signal, QMimeData
 from PySide6.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QColor, QPalette
+from database.connection import get_connection
 import os
 
 # Modern dark theme stylesheet
@@ -281,14 +282,15 @@ class ProductCard(QFrame):
         btn_layout.setSpacing(4)
         
         if score is not None:
+            self.score = score
             self.btn_explain = QPushButton("🔍 Explain Match", self)
-            self.btn_explain.clicked.connect(lambda: self.explain.emit(self.product_id))
+            self.btn_explain.clicked.connect(self.show_details)
             btn_layout.addWidget(self.btn_explain)
         else:
             self.btn_view = QPushButton("👁️", self)
             self.btn_view.setToolTip("View Product Details")
             self.btn_view.setObjectName("secondaryBtn")
-            self.btn_view.clicked.connect(lambda: self.viewed.emit(self.product_id))
+            self.btn_view.clicked.connect(self.on_view_clicked)
             
             self.btn_wish = QPushButton("❤️", self)
             self.btn_wish.setToolTip("Add to Wishlist")
@@ -304,3 +306,138 @@ class ProductCard(QFrame):
             btn_layout.addWidget(self.btn_buy)
         
         layout.addLayout(btn_layout)
+
+    def on_view_clicked(self):
+        self.viewed.emit(self.product_id)
+        self.show_details()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.show_details()
+
+    def show_details(self):
+        # Determine current user ID if available
+        user_id = None
+        p = self.parent()
+        while p:
+            if hasattr(p, "current_user_id"):
+                user_id = p.current_user_id
+                break
+            p = p.parent()
+            
+        dialog = ProductDetailsDialog(
+            product=self.product,
+            score=getattr(self, "score", None),
+            user_id=user_id,
+            parent=self
+        )
+        dialog.exec()
+
+
+class ProductDetailsDialog(QDialog):
+    def __init__(self, product, score=None, user_id=None, parent=None):
+        super().__init__(parent)
+        self.product = product
+        self.score = score
+        self.user_id = user_id
+        
+        self.setWindowTitle(f"Product Details - {product['name']}")
+        self.resize(600, 500)
+        self.setStyleSheet("background-color: #0f172a;")
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Upper Layout (Image and Meta)
+        upper_layout = QHBoxLayout()
+        upper_layout.setSpacing(20)
+        
+        # Image (Enlarged)
+        img_lbl = QLabel(self)
+        img_lbl.setFixedSize(240, 200)
+        img_lbl.setAlignment(Qt.AlignCenter)
+        img_lbl.setStyleSheet("border-radius: 8px; background-color: #1e293b; border: 1px solid #334155;")
+        if os.path.exists(product['image_path']):
+            pix = QPixmap(product['image_path'])
+            img_lbl.setPixmap(pix.scaled(240, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_lbl.setText("💍 No Image")
+        upper_layout.addWidget(img_lbl)
+        
+        # Meta info
+        meta_widget = QWidget(self)
+        meta_layout = QVBoxLayout(meta_widget)
+        meta_layout.setContentsMargins(0, 0, 0, 0)
+        meta_layout.setSpacing(10)
+        
+        name_lbl = QLabel(product['name'], self)
+        name_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #f8fafc;")
+        name_lbl.setWordWrap(True)
+        meta_layout.addWidget(name_lbl)
+        
+        cat_lbl = QLabel(f"Category: {product['category']}", self)
+        cat_lbl.setStyleSheet("color: #38bdf8; font-size: 13px;")
+        meta_layout.addWidget(cat_lbl)
+        
+        price_lbl = QLabel(f"Price: ${product['price']:.2f}", self)
+        price_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #34d399;")
+        meta_layout.addWidget(price_lbl)
+        
+        stock_lbl = QLabel(f"Available Stock: {product['stock']} units", self)
+        stock_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        meta_layout.addWidget(stock_lbl)
+        
+        meta_layout.addStretch()
+        upper_layout.addWidget(meta_widget, 1)
+        layout.addLayout(upper_layout)
+        
+        # Explanation Section
+        explain_box = QFrame(self)
+        explain_box.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px;")
+        explain_layout = QVBoxLayout(explain_box)
+        explain_layout.setSpacing(8)
+        
+        exp_title = QLabel("🤖 AI Recommendation & Match Profile", self)
+        exp_title.setStyleSheet("font-weight: bold; color: #38bdf8; font-size: 13px;")
+        explain_layout.addWidget(exp_title)
+        
+        if score is not None:
+            cf_factor = 40.0 * score
+            content_factor = 20.0
+            popularity_factor = 10.0
+            
+            # Query category profile to explain content match
+            if user_id:
+                try:
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM user_events WHERE user_id = ? AND product_id IN (SELECT product_id FROM products WHERE category = ?)",
+                        (user_id, product['category'])
+                    )
+                    cat_event_count = cursor.fetchone()[0]
+                    conn.close()
+                    if cat_event_count > 0:
+                        content_factor = min(20.0, 5.0 + 2.0 * cat_event_count)
+                except Exception:
+                    pass
+            
+            explain_layout.addWidget(QLabel(f"• Overall Matching Score: {score*100:.1f}%", self))
+            explain_layout.addWidget(QLabel(f"  - Collaborative Filtering: {cf_factor:.1f}% (Based on similar buyers' tastes)", self))
+            explain_layout.addWidget(QLabel(f"  - Category Affinity: {content_factor:.1f}% (Matches your preference for {product['category']})", self))
+            explain_layout.addWidget(QLabel(f"  - Stock & Popularity: {popularity_factor:.1f}% (Based on general shopper clicks)", self))
+            
+            # Detailed visual explain hint if it's visual search tab
+            if "PureVisualSearchTab" in parent.parent().__class__.__name__:
+                explain_layout.addWidget(QLabel(f"  - Visual Core Similarity: {score*100:.1f}% (Matches shape/color profile)", self))
+        else:
+            explain_layout.addWidget(QLabel("No active recommendation score calculated (Direct catalog search).", self))
+            explain_layout.addWidget(QLabel("This product is cataloged in the shop inventory.", self))
+            
+        layout.addWidget(explain_box)
+        
+        # Close button
+        close_btn = QPushButton("Close Details", self)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)

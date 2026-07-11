@@ -47,7 +47,7 @@ class PureVisualSearchTab(QWidget):
         left_layout.setSpacing(15)
         
         # Title
-        title_lbl = QLabel("AURA SEARCH", self)
+        title_lbl = QLabel("JEWELLERY SHOP SEARCH", self)
         title_lbl.setStyleSheet("font-size: 20px; font-weight: bold; color: #38bdf8; letter-spacing: 1px;")
         title_lbl.setAlignment(Qt.AlignCenter)
         left_layout.addWidget(title_lbl)

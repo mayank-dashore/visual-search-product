@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QComboBox, QScrollArea, QGridLayout, QLineEdit,
-                             QPushButton, QSplitter)
+                             QPushButton, QSplitter, QFrame)
 from PySide6.QtCore import Qt, Slot
 from gui.components import DragDropUploadWidget, ProductCard
 from database.connection import get_connection
@@ -40,17 +40,20 @@ class CustomerViewTab(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 10, 0)
         
-        # User selector
-        user_selector_layout = QVBoxLayout()
-        user_selector_lbl = QLabel("Active Customer Profile:", self)
-        user_selector_lbl.setStyleSheet("font-weight: bold; color: #94a3b8;")
-        user_selector_layout.addWidget(user_selector_lbl)
+        # Active profile card display
+        profile_card = QFrame(self)
+        profile_card.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px;")
+        profile_layout = QVBoxLayout(profile_card)
         
-        self.user_combo = QComboBox(self)
-        self.load_users()
-        self.user_combo.currentTextChanged.connect(self.on_user_changed)
-        user_selector_layout.addWidget(self.user_combo)
-        left_layout.addLayout(user_selector_layout)
+        profile_title = QLabel("CURRENT CUSTOMER:", profile_card)
+        profile_title.setStyleSheet("font-weight: bold; color: #94a3b8; font-size: 11px;")
+        profile_layout.addWidget(profile_title)
+        
+        self.user_profile_lbl = QLabel("Loading profile...", profile_card)
+        self.user_profile_lbl.setStyleSheet("font-weight: bold; color: #f8fafc; font-size: 13px;")
+        profile_layout.addWidget(self.user_profile_lbl)
+        
+        left_layout.addWidget(profile_card)
         
         left_layout.addSpacing(15)
         
@@ -125,25 +128,22 @@ class CustomerViewTab(QWidget):
         
         splitter.setSizes([300, 700])
         main_layout.addWidget(splitter)
-        
-        # Initial display
-        self.update_recommendations()
-        self.update_recently_viewed()
 
-    def load_users(self):
+    def set_user(self, user_id):
+        self.current_user_id = user_id
+        
+        # Load user name details to display on left panel
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, name FROM users")
-        for user_id, name in cursor.fetchall():
-            self.user_combo.addItem(f"{name} ({user_id})", user_id)
+        cursor.execute("SELECT name, profile_type FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
         conn.close()
-
-    def on_user_changed(self):
-        idx = self.user_combo.currentIndex()
-        if idx >= 0:
-            self.current_user_id = self.user_combo.itemData(idx)
-            self.update_recommendations()
-            self.update_recently_viewed()
+        
+        if row:
+            self.user_profile_lbl.setText(f"👤 {row['name']}\nTier: {row['profile_type']}")
+            
+        self.update_recommendations()
+        self.update_recently_viewed()
 
     def on_image_selected(self, filepath):
         self.search_image_path = filepath
