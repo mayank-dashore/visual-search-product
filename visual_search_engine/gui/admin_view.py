@@ -952,77 +952,27 @@ class AdminViewTab(QWidget):
         
         tools_layout.addWidget(add_box)
         
-        # Maintenance panel (Right)
-        ctrl_box = QFrame(tools_content)
-        ctrl_box.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 12px;")
-        ctrl_layout = QVBoxLayout(ctrl_box)
+        # Instantiate invisible dummy controls to prevent AttributeError crashes in existing worker handlers
+        self.rebuild_btn = QPushButton(self)
+        self.rebuild_btn.setVisible(False)
+        self.sync_btn = QPushButton(self)
+        self.sync_btn.setVisible(False)
         
-        ctrl_lbl = QLabel("Vector Engine Maintenance", ctrl_box)
-        ctrl_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc; margin-bottom: 8px;")
-        ctrl_layout.addWidget(ctrl_lbl)
-        
-        rebuild_box = QFrame(ctrl_box)
-        rebuild_box.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 4px; padding: 10px; margin-bottom: 8px;")
-        rb_layout = QVBoxLayout(rebuild_box)
-        rb_title = QLabel("Rebuild Search Index", rebuild_box)
-        rb_title.setStyleSheet("font-weight: bold; color: #cbd5e1;")
-        rb_desc = QLabel("Scans inventory database, extracts fallback color/layout signatures, and rebuilds FAISS indices.", rebuild_box)
-        rb_desc.setWordWrap(True)
-        rb_desc.setStyleSheet("color: #64748b; font-size: 11px; margin-bottom: 4px;")
-        self.rebuild_btn = QPushButton("🔄 Rebuild FAISS Vector Index", rebuild_box)
-        self.rebuild_btn.clicked.connect(self.on_rebuild_index)
-        
-        self.cancel_rebuild_btn = QPushButton("🛑 Cancel Rebuild", rebuild_box)
-        self.cancel_rebuild_btn.setStyleSheet("background-color: #ef4444; color: white;")
+        self.cancel_rebuild_btn = QPushButton(self)
         self.cancel_rebuild_btn.setVisible(False)
-        self.cancel_rebuild_btn.clicked.connect(self.on_cancel_rebuild)
-        
-        self.rebuild_status_lbl = QLabel("", rebuild_box)
-        self.rebuild_status_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: bold; margin-top: 4px;")
-        
-        rb_layout.addWidget(rb_title)
-        rb_layout.addWidget(rb_desc)
-        rb_layout.addWidget(self.rebuild_btn)
-        rb_layout.addWidget(self.cancel_rebuild_btn)
-        rb_layout.addWidget(self.rebuild_status_lbl)
-        ctrl_layout.addWidget(rebuild_box)
-        
-        # Folder Sync Box
-        sync_box = QFrame(ctrl_box)
-        sync_box.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 4px; padding: 10px; margin-bottom: 8px;")
-        sync_layout = QVBoxLayout(sync_box)
-        
-        sync_title = QLabel("Sync Dataset Folders", sync_box)
-        sync_title.setStyleSheet("font-weight: bold; color: #cbd5e1;")
-        sync_desc = QLabel("Manually scans datasets folder for additions/deletions and updates database & embeddings.", sync_box)
-        sync_desc.setWordWrap(True)
-        sync_desc.setStyleSheet("color: #64748b; font-size: 11px; margin-bottom: 4px;")
-        
-        self.sync_btn = QPushButton("🔄 Sync Dataset Folders", sync_box)
-        self.sync_btn.clicked.connect(self.on_trigger_sync)
-        
-        self.cancel_sync_btn = QPushButton("🛑 Cancel Sync", sync_box)
-        self.cancel_sync_btn.setStyleSheet("background-color: #ef4444; color: white;")
+        self.cancel_sync_btn = QPushButton(self)
         self.cancel_sync_btn.setVisible(False)
-        self.cancel_sync_btn.clicked.connect(self.on_cancel_sync)
         
-        self.sync_status_lbl = QLabel("", sync_box)
-        self.sync_status_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: bold; margin-top: 4px;")
+        self.rebuild_status_lbl = QLabel(self)
+        self.rebuild_status_lbl.setVisible(False)
+        self.sync_status_lbl = QLabel(self)
+        self.sync_status_lbl.setVisible(False)
         
-        self.last_sync_lbl = QLabel("Last Sync: Never", sync_box)
-        self.last_sync_lbl.setStyleSheet("color: #64748b; font-size: 11px; margin-top: 2px;")
+        self.last_sync_lbl = QLabel(self)
+        self.last_sync_lbl.setVisible(False)
         
-        sync_layout.addWidget(sync_title)
-        sync_layout.addWidget(sync_desc)
-        sync_layout.addWidget(self.sync_btn)
-        sync_layout.addWidget(self.cancel_sync_btn)
-        sync_layout.addWidget(self.sync_status_lbl)
-        sync_layout.addWidget(self.last_sync_lbl)
-        
-        ctrl_layout.addWidget(sync_box)
-        
-        ctrl_layout.addStretch()
-        tools_layout.addWidget(ctrl_box)
+        # Add stretch to center the Add Product tool beautifully
+        tools_layout.addStretch()
         
         tools_scroll.setWidget(tools_content)
         self.admin_tabs.addTab(tools_scroll, "⚙️ Admin Tools")
