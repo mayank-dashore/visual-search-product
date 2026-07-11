@@ -1,0 +1,26 @@
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Databases and Indices
+visual_search_engine/database.db
+visual_search_engine/vector_index.bin
+visual_search_engine/vector_metadata.pkl
+
+# Datasets
+visual_search_engine/datasets/synthetic/
+visual_search_engine/datasets/processed/
+# Exclude Tanishq dataset images but keep directories structure if desired
+visual_search_engine/datasets/tanishq-jewellery-dataset/
+
+# OS-specific
+.DS_Store
+Thumbs.db
