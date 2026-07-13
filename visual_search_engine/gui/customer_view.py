@@ -19,7 +19,7 @@ class CustomerViewTab(QWidget):
         self.visual_similarities = []
         self.recs_page = 0
         self.all_page = 0
-        self.items_per_page = 6
+        self.items_per_page = 10
         self.current_mode = "recs" # "recs", "search"
         self.all_recs_list = []
         self.all_products_list = []
@@ -230,7 +230,7 @@ class CustomerViewTab(QWidget):
             query_embedding = self.embedder.get_embedding(pil_img)
             
             # Retrieve via FAISS (top 3 matches)
-            self.visual_similarities = self.search_index.search(query_embedding, k=3)
+            self.visual_similarities = self.search_index.search(query_embedding, k=10)
             
             # Display visually similar products
             self.similar_lbl.show()
@@ -296,7 +296,7 @@ class CustomerViewTab(QWidget):
         recs = self.recommender.get_hybrid_recommendations(
             user_id=self.current_user_id,
             visual_similarities=self.visual_similarities,
-            k=max(6, len(all_prods))
+            k=10
         )
         conn.close()
         

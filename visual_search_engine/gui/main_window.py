@@ -2,7 +2,6 @@ from PySide6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLa
 from PySide6.QtCore import Qt, Slot
 from gui.customer_view import CustomerViewTab
 from gui.admin_view import AdminViewTab
-from gui.visual_search_tab import PureVisualSearchTab
 from gui.user_profile_tab import UserProfileTab
 from gui.login_widget import LoginWidget
 from gui.components import STYLESHEET
@@ -88,7 +87,6 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
         if role == "customer":
-            self.visual_search_tab = PureVisualSearchTab(self)
             self.customer_tab = CustomerViewTab(self)
             self.profile_tab = UserProfileTab(self, admin_mode=False)
             
@@ -96,8 +94,7 @@ class MainWindow(QMainWindow):
             self.customer_tab.set_user(user_id)
             self.profile_tab.set_user(user_id)
             
-            self.tabs.addTab(self.visual_search_tab, "🔍 Visual Search Landing Page")
-            self.tabs.addTab(self.customer_tab, "🛍️ Recommender Sandbox")
+            self.tabs.addTab(self.customer_tab, "🔍 Search")
             self.tabs.addTab(self.profile_tab, "👤 History")
         else:
             self.admin_tab = AdminViewTab(self)
@@ -113,7 +110,7 @@ class MainWindow(QMainWindow):
     def on_tab_changed(self, index):
         # Dynamically refresh tab states when switching
         tab_text = self.tabs.tabText(index)
-        if "Recommender Sandbox" in tab_text:
+        if "Search" in tab_text:
             self.customer_tab.update_recommendations()
             self.customer_tab.update_recently_viewed()
         elif "History" in tab_text:
