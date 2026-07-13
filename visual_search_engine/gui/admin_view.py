@@ -249,6 +249,75 @@ class DbWorker(QThread):
                 elapsed = time.time() - start_time
                 self.finished.emit(True, f"Product '{name}' successfully added and visual search index updated in {elapsed:.1f}s.")
                 
+            elif self.task_type == "bulk_add":
+                import time
+                start_time = time.time()
+                from database.connection import get_connection
+                from PIL import Image
+                import os
+                import hashlib
+                
+                file_paths = self.params.get("file_paths", [])
+                category = self.params.get("category")
+                embedder = self.params.get("embedder")
+                search_index = self.params.get("search_index")
+                
+                app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                target_dir = os.path.join(app_root, "datasets", "tanishq-jewellery-dataset", category)
+                os.makedirs(target_dir, exist_ok=True)
+                
+                success_count = 0
+                search_index.load()
+                
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                for idx, src_path in enumerate(file_paths):
+                    if getattr(self, 'is_cancelled', False):
+                        break
+                        
+                    self.status_update.emit(f"Bulk embedding {idx+1}/{len(file_paths)}...")
+                    
+                    try:
+                        filename_raw = os.path.basename(src_path)
+                        price, stock = parse_price_stock_from_filename(filename_raw)
+                        
+                        base_name_only = os.path.splitext(filename_raw)[0]
+                        name = base_name_only.replace('_', ' ').replace('-', ' ').title()
+                        
+                        filename = f"{base_name_only}_{os.urandom(2).hex()}.jpg"
+                        dest_path = os.path.join(target_dir, filename)
+                        
+                        with Image.open(src_path) as img:
+                            rgb_img = img.convert('RGB')
+                            rgb_img.save(dest_path, "JPEG")
+                            
+                        db_img_path = f"visual_search_engine/datasets/tanishq-jewellery-dataset/{category}/{filename}"
+                        
+                        norm_path = db_img_path.replace("\\", "/").lower()
+                        h = hashlib.md5(norm_path.encode('utf-8')).hexdigest()
+                        prod_id = f"prod_{h[:12]}"
+                        
+                        cursor.execute(
+                            "INSERT INTO products (product_id, name, category, price, image_path, stock) VALUES (?, ?, ?, ?, ?, ?)",
+                            (prod_id, name, category, price, db_img_path, stock)
+                        )
+                        
+                        pil_img = Image.open(dest_path).convert('RGB')
+                        emb = embedder.get_embedding(pil_img)
+                        search_index.add_product(prod_id, emb)
+                        
+                        success_count += 1
+                    except Exception as e:
+                        print(f"Bulk add skip product {src_path}: {e}")
+                        
+                conn.commit()
+                conn.close()
+                search_index.save()
+                
+                elapsed = time.time() - start_time
+                self.finished.emit(True, f"Successfully bulk uploaded {success_count} products and updated visual search index in {elapsed:.1f}s.")
+                
             elif self.task_type == "auto_sync":
                 import time
                 start_time = time.time()
@@ -849,15 +918,23 @@ class AdminViewTab(QWidget):
         # Date-wise Calendar Filter Row
         filter_row = QHBoxLayout()
         
-        self.date_filter_checkbox = QCheckBox("Filter by Specific Calendar Date:", logs_widget)
+        self.date_filter_checkbox = QCheckBox("Filter by Date Range:", logs_widget)
         self.date_filter_checkbox.setStyleSheet("color: #cbd5e1; font-weight: bold; font-size: 11px;")
         filter_row.addWidget(self.date_filter_checkbox)
         
-        self.log_date = QDateEdit(logs_widget)
-        self.log_date.setCalendarPopup(True)
-        self.log_date.setDate(QDate.currentDate())
-        self.log_date.setStyleSheet("QDateEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #334155; padding: 4px; border-radius: 4px; }")
-        filter_row.addWidget(self.log_date)
+        filter_row.addWidget(QLabel("Start:", logs_widget))
+        self.log_start_date = QDateEdit(logs_widget)
+        self.log_start_date.setCalendarPopup(True)
+        self.log_start_date.setDate(QDate.currentDate().addDays(-7))
+        self.log_start_date.setStyleSheet("QDateEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #334155; padding: 4px; border-radius: 4px; }")
+        filter_row.addWidget(self.log_start_date)
+        
+        filter_row.addWidget(QLabel("End:", logs_widget))
+        self.log_end_date = QDateEdit(logs_widget)
+        self.log_end_date.setCalendarPopup(True)
+        self.log_end_date.setDate(QDate.currentDate())
+        self.log_end_date.setStyleSheet("QDateEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #334155; padding: 4px; border-radius: 4px; }")
+        filter_row.addWidget(self.log_end_date)
         
         self.filter_btn = QPushButton("🔍 Filter Logs", logs_widget)
         self.filter_btn.setStyleSheet("""
@@ -876,6 +953,23 @@ class AdminViewTab(QWidget):
         self.filter_btn.clicked.connect(self.load_shopper_logs)
         filter_row.addWidget(self.filter_btn)
         
+        self.export_btn = QPushButton("📤 Export Logs", logs_widget)
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0ea5e9;
+                color: #ffffff;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #0284c7;
+            }
+        """)
+        self.export_btn.clicked.connect(self.export_shopper_logs)
+        filter_row.addWidget(self.export_btn)
+        
         filter_row.addStretch()
         logs_layout.addLayout(filter_row)
         
@@ -892,7 +986,7 @@ class AdminViewTab(QWidget):
         self.registry_subtabs.addTab(logs_widget, "📋 Live Activity Events Log")
         
         directory_layout.addWidget(self.registry_subtabs)
-        self.admin_tabs.addTab(directory_tab, "📦 Logs & Registry")
+        self.admin_tabs.addTab(directory_tab, "📦 Telemetry")
         
         # ----------------------------------------------------
         # Tab 3: System Admin Tools (Scrollable)
@@ -951,6 +1045,53 @@ class AdminViewTab(QWidget):
         add_layout.addStretch()
         
         tools_layout.addWidget(add_box)
+        
+        # Bulk Import Products Box
+        bulk_box = QFrame(tools_content)
+        bulk_box.setFixedWidth(380)
+        bulk_box.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 12px;")
+        bulk_layout = QVBoxLayout(bulk_box)
+        
+        bulk_lbl = QLabel("Bulk Upload Products", bulk_box)
+        bulk_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc; margin-bottom: 8px;")
+        bulk_layout.addWidget(bulk_lbl)
+        
+        bulk_desc = QLabel(
+            "Select multiple product images to upload. Product name, price, and stock will be parsed automatically from filenames, or fall back to defaults.",
+            bulk_box
+        )
+        bulk_desc.setWordWrap(True)
+        bulk_desc.setStyleSheet("color: #cbd5e1; font-size: 11px; line-height: 1.4;")
+        bulk_layout.addWidget(bulk_desc)
+        
+        bulk_form = QFormLayout()
+        bulk_form.setSpacing(8)
+        
+        self.bulk_cat_combo = QComboBox(bulk_box)
+        self.bulk_cat_combo.addItems(["Rings", "Necklaces", "Earrings", "Bangles"])
+        bulk_form.addRow(QLabel("Default Category:", bulk_box), self.bulk_cat_combo)
+        
+        bulk_layout.addLayout(bulk_form)
+        bulk_layout.addSpacing(10)
+        
+        self.bulk_upload_btn = QPushButton("📁 Select Files & Bulk Import", bulk_box)
+        self.bulk_upload_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: #ffffff;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+        """)
+        self.bulk_upload_btn.clicked.connect(self.on_bulk_upload)
+        bulk_layout.addWidget(self.bulk_upload_btn)
+        bulk_layout.addStretch()
+        
+        tools_layout.addWidget(bulk_box)
         
         # Instantiate invisible dummy controls to prevent AttributeError crashes in existing worker handlers
         self.rebuild_btn = QPushButton(self)
@@ -1503,12 +1644,13 @@ class AdminViewTab(QWidget):
         """
         params = []
         
-        # Filter by specific calendar date if checked (Optimized using index-friendly BETWEEN)
+        # Filter by specific calendar date range if checked (Optimized using index-friendly BETWEEN)
         if self.date_filter_checkbox.isChecked():
-            chosen_date = self.log_date.date().toString("yyyy-MM-dd")
+            start_date_str = self.log_start_date.date().toString("yyyy-MM-dd")
+            end_date_str = self.log_end_date.date().toString("yyyy-MM-dd")
             query += " WHERE timestamp BETWEEN ? AND ?"
-            params.append(f"{chosen_date} 00:00:00")
-            params.append(f"{chosen_date} 23:59:59")
+            params.append(f"{start_date_str} 00:00:00")
+            params.append(f"{end_date_str} 23:59:59")
             
         query += " ORDER BY timestamp DESC LIMIT 100"
         
@@ -1522,7 +1664,7 @@ class AdminViewTab(QWidget):
             self.logs_table.setRowCount(1)
             for c in range(5):
                 self.logs_table.setItem(0, c, QTableWidgetItem(""))
-            placeholder = QTableWidgetItem("⚠️ No data here. Please choose another date in the filter above.")
+            placeholder = QTableWidgetItem("⚠️ No data here. Please choose another date range in the filter above.")
             placeholder.setTextAlignment(Qt.AlignCenter)
             placeholder.setFlags(Qt.ItemIsEnabled)
             self.logs_table.setItem(0, 2, placeholder)
@@ -1538,6 +1680,52 @@ class AdminViewTab(QWidget):
             
             for col in [0, 2, 3, 4]:
                 self.logs_table.item(row_idx, col).setTextAlignment(Qt.AlignCenter)
+
+    def export_shopper_logs(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Activity Logs", "", "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+            
+        query = """
+            SELECT user_id, name, event_type, timestamp, dwell_time 
+            FROM user_events 
+            JOIN products ON user_events.product_id = products.product_id
+        """
+        params = []
+        
+        if self.date_filter_checkbox.isChecked():
+            start_date_str = self.log_start_date.date().toString("yyyy-MM-dd")
+            end_date_str = self.log_end_date.date().toString("yyyy-MM-dd")
+            query += " WHERE timestamp BETWEEN ? AND ?"
+            params.append(f"{start_date_str} 00:00:00")
+            params.append(f"{end_date_str} 23:59:59")
+            
+        query += " ORDER BY timestamp DESC"
+        
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            conn.close()
+            
+            import csv
+            with open(file_path, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["User ID", "Product Name", "Action Type", "Timestamp", "Dwell Time (s)"])
+                for row in rows:
+                    writer.writerow([
+                        row['user_id'],
+                        row['name'],
+                        row['event_type'].capitalize(),
+                        row['timestamp'],
+                        row['dwell_time']
+                    ])
+            QMessageBox.information(self, "Export Successful", f"Successfully exported {len(rows)} event logs to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Failed to export logs: {e}")
 
     def on_add_user_clicked(self):
         from PySide6.QtWidgets import QInputDialog
@@ -1676,6 +1864,47 @@ class AdminViewTab(QWidget):
             self.refresh_view()
         else:
             QMessageBox.critical(self, "Product Insertion Failed", f"Failed to add product: {msg}")
+
+    def on_bulk_upload(self):
+        # Block if any worker is currently running
+        if (hasattr(self, 'rebuild_worker') and self.rebuild_worker.isRunning()) or \
+           (hasattr(self, 'delete_worker') and self.delete_worker.isRunning()) or \
+           (hasattr(self, 'add_worker') and self.add_worker.isRunning()) or \
+           (hasattr(self, 'scan_worker') and self.scan_worker.isRunning()) or \
+           (hasattr(self, 'bulk_worker') and self.bulk_worker.isRunning()):
+            QMessageBox.warning(self, "Operations Locked", "An embedding or database synchronization process is currently in progress. Please wait until it completes.")
+            return
+
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Product Images for Bulk Upload", "", "Images (*.png *.jpg *.jpeg *.bmp)"
+        )
+        if not file_paths:
+            return
+            
+        category = self.bulk_cat_combo.currentText()
+        
+        # Disable button and show progress indicator
+        self.bulk_upload_btn.setEnabled(False)
+        self.bulk_upload_btn.setText(f"Importing {len(file_paths)} files...")
+        
+        # Start background worker thread
+        self.bulk_worker = DbWorker("bulk_add", {
+            "file_paths": file_paths,
+            "category": category,
+            "embedder": self.embedder,
+            "search_index": self.search_index
+        })
+        self.bulk_worker.finished.connect(self.on_bulk_finished)
+        self.bulk_worker.start()
+
+    def on_bulk_finished(self, success, msg):
+        self.bulk_upload_btn.setEnabled(True)
+        self.bulk_upload_btn.setText("📁 Select Files & Bulk Import")
+        if success:
+            QMessageBox.information(self, "Bulk Upload Successful", msg)
+            self.refresh_view()
+        else:
+            QMessageBox.critical(self, "Bulk Upload Failed", f"Failed to bulk upload: {msg}")
 
     def auto_scan_folder(self):
         # Prevent auto-scan if any indexing or database worker is currently running
